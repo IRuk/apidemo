@@ -1,7 +1,7 @@
 
 # demo-api
 
-This is a LifeWorks application demo for checking internet connection speeds by postcode and connection type. It includes API endpoints and a web application interface and command line tools used to manage database tables. Average download speeds are displayed in Mbit/s.
+This is a LifeWorks application demo for checking internet connection speeds by postcode and connection type. It includes API endpoints and a web application interface and command line tools used to manage database tables. Average internet speed is displayed in Mbit/s.
 
 To make an assessment of internet connectivity, I decided to focus on internet speed. At a high level, I use download speed and upload speed to assess the quality of the user’s network connection. Poor broadband speeds affect the liveability of homes and the viability and productivity of businesses.
 
