@@ -40,6 +40,7 @@ def _get_averages(categories, postcode_area_id, district_id, sector, unit_id):
     Returns:
         Results as key value pairs containing connection, upload average,
         download upload
+
     """
     tables = [all_tables[catergory] for catergory in categories]
 

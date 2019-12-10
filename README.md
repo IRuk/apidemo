@@ -13,7 +13,7 @@ If the average speed for UFBB lines for a given postcode is 0 Mbit/s, that means
 
 It would be advisable for internet provider technicians to confirm the postcode-level availability of superfast and ultrafast broadband.
 
-I chose to split the postcodes into various parts to have a quick postcode reference cache available to prevent making database reads one every request. I also split the readings by connection type for smaller table sizes.
+For the data storage, the postcodes were split into various parts to have a quick postcode reference cache available to prevent making database reads on every request. The readings were also split by connection type into separate tables for smaller table sizes.
 
 ![home page](screenshots/1.jpg)
 
@@ -41,11 +41,11 @@ I chose to split the postcodes into various parts to have a quick postcode refer
 
 ## Basic api endpoint examples
 
-    http://localhost:8080/average?postcode=AB101AU
-    http://localhost:8080/average?postcode=AB101AU&connection=all
-    http://localhost:8080/average?postcode=AB101AU&connection=BB
-    http://localhost:8080/average?postcode=AB101AU&connection=slow
-    http://localhost:8080/average?postcode=AB101AU&connection=average
+    http://localhost:8080/api/average?postcode=AB101AU
+    http://localhost:8080/api/average?postcode=AB101AU&connection=all
+    http://localhost:8080/api/average?postcode=AB101AU&connection=BB
+    http://localhost:8080/api/average?postcode=AB101AU&connection=slow
+    http://localhost:8080/api/average?postcode=AB101AU&connection=average
 
 ## Development
 
@@ -81,7 +81,7 @@ Password: demouser
 
 *Specify a custom username and password in the development ini for the MySQL authentication.*
 
-## Initialize or clear database:
+## Initialize or clear database
 
     demo-api-initialisedb ./development.ini
     demo-api-initialisedb ./development.ini --drop-database
