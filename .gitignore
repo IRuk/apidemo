@@ -1,0 +1,11 @@
+.DS_Store
+*.egg/
+*.egg-info/
+.eggs/
+.pytest_cache/
+env/
+manifest.json
+node_modules/
+*.pyc
+.sass-cache/
+development.ini

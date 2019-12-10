@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Demo API Results</title>
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0" />
+    <link rel="stylesheet" href="{{ request.static_url('demo.api:static/dist/css/style.css') }}">
+  </head>
+  <body>
+    <h1>Results</h1>
+    <div class="container">
+      <h2>Average by connection type.</h2>
+      <hr>
+        <div class="container">
+          {% if message %}
+            <p>{{message}}</p> 
+          {% else %}
+            {% for result in results %}
+            <p>{{ result['connection'] }}: Download  {{ result['download'] }}, Upload {{ result['upload'] }}</p>
+            {% endfor %}
+          {% endif %}
+        </div>
+      <hr>
+      <form action="/">
+        <div class="container">
+          <button type="submit" class="submitbtn">Home</button>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>
+

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Demo LifeWorks API</title>
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0" />
+    <link rel="stylesheet" href="{{ request.static_url('demo.api:static/dist/css/style.css') }}">
+  </head>
+  <body>
+    <h1>Demo LifeWorks API {{version}}</h1>
+    <div class="container">
+      <h2>Database table counts</h2>
+      <div class="container">
+        {% if database_row_counts is not defined %}
+        <p>Need to populate database.</p>
+        {% else %}
+          {% for tame_name, count in database_row_counts %}
+          <p>{{tame_name}}: {{count}}</p>
+          {% endfor %}
+        {% endif %}
+      </div>
+      <p></p>
+      <h2>Average speed</h2>
+      <form action="/demo_average">
+        <div class="container">
+          <p>Find the average internet speed for a given postal code.</p>
+          <hr>
+            <label for="postcode"><b>Postcode</b></label>
+            <input type="text" placeholder="Postcode (Example: AB101AU)" name="postcode" required>
+            <label for="connection"><b>Connection type</b></label>
+            <input type="text" placeholder="Connection type (Default is 'average', all connections with 'all')" name="connection">
+          <hr>
+          <button type="submit" class="submitbtn">Submit</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="container datasource">
+      <p>Data taken from this <a href="https://www.ofcom.org.uk/research-and-data/multi-sector-research/infrastructure-research/connected-nations-2016/downloads">source</a>.</p>
+    </div>
+  </body>
+</html>

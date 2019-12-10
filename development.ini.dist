@@ -1,0 +1,78 @@
+###
+# app configuration
+# http://docs.pylonsproject.org/projects/pyramid/en/latest/narr/environment.html
+###
+
+[app:main]
+use = egg:demo-api#main
+
+pyramid.reload_all = true
+pyramid.debug_all = true
+pyramid.default_locale_name = en
+pyramid.includes =
+    demo.api.development
+
+l10n.default_locale = en_GB
+l10n.default_currency = GBP
+l10n.default_timezone = Europe/London
+
+sqlalchemy.url = mysql+pymysql://demouser:demouser@127.0.0.1/irdemoapi?charset=UTF8MB4
+
+zookeeper.hosts = 127.0.0.1
+zookeeper.timeout = 1
+
+static.prefix = assets
+
+###
+# wsgi server configuration
+###
+
+[server:main]
+use = egg:waitress#main
+host = 127.0.0.1
+port = 8080
+
+###
+# logging configuration
+# http://docs.pylonsproject.org/projects/pyramid/en/latest/narr/logging.html
+###
+
+[loggers]
+keys = root, demo.api, demo.api.scripts.update_db, sqlalchemy
+
+[handlers]
+keys = console
+
+[formatters]
+keys = generic
+
+[logger_root]
+level = DEBUG
+handlers = console
+
+[logger_demo.api.scripts.update_db]
+level = INFO
+handlers =
+qualname = demo.api.scripts.update_db
+
+[logger_demo.api]
+level = DEBUG
+handlers =
+qualname = demo.api
+
+[logger_sqlalchemy]
+level = INFO
+handlers =
+qualname = sqlalchemy.engine
+# "level = INFO" logs SQL queries.
+# "level = DEBUG" logs SQL queries and results.
+# "level = WARN" logs neither.  (Recommended for production systems.)
+
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+
+[formatter_generic]
+format = %(asctime)s %(levelname)-5.5s [%(name)s][%(threadName)s] %(message)s
