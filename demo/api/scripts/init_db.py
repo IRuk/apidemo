@@ -14,7 +14,7 @@ Options:
 
 
 The user connecting to the database (defined in the ini file) must have
-appropriate permissions to either drop tables on the used database.
+appropriate permissions to drop tables on the used database.
 """
 import logging
 import importlib

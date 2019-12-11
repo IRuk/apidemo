@@ -31,7 +31,7 @@ For the data storage, the postcodes were split into various parts to have a quic
 * postcode: A postcode with no spaces. Example, AB101AU.
 * connection: An optional connection type. If missing 'average' is the default.
 
-| value    | Description                                           |
+| Value    | Description                                           |
 | --------:| ----------------------------------------------------- |
 | average  | Average (Mbit/s) of all connection types              |
 | slow     | Average (Mbit/s) for lines <10Mbit/s                  |

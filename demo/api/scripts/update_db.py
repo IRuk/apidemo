@@ -19,14 +19,17 @@ Options:
                                Defaults to internal names. See indexed headers
 
 The user connecting to the database (defined in the ini file) must have
-appropriate permissions to either drop tables on the used database.
+appropriate permissions to update tables on the database. Committing
+changes only occurs after each entire file is processed without incident. Each
+file must contain all entries for one postal area, other postal areas in the
+same file will raise and abort.
 
 Indexed headers:
     Header indexes represent the subset for the header type. Index start at 0
     are separated from the header name by a colon.
-    Header with index 0 which will use column to populate the 'overall
+    Header with index 0 will use table 0 to populate the 'overall
     average', any subsequent index is used to store subsequent indexes. Care
-    must be taken to not swap the header types for the stored samples by index.
+    must be taken to not apply changes to the wrong table.
 
     Example 1, '0:Download'
     Example 2, '1:Download < 10Mbit/s'
@@ -34,10 +37,10 @@ Indexed headers:
 Default postcode header:
     {0}
 
-Default download header arguments:
+Default download header arguments. Format is 'table_index:header':
 {1}
 
-Default upload header arguments:
+Default upload header arguments. Format is 'table_index:header':
 {2}
 """
 import os
@@ -45,7 +48,7 @@ import logging
 import glob
 import csv
 import datetime
-import itertools
+from itertools import chain
 
 from docopt import docopt
 import transaction
@@ -111,8 +114,8 @@ def main():
         table_name = (all_tables[category_index]
                       .__table__.name)
         try:
-            return ('    Category {} {!r} with header {!r}'
-                    ''.format(category_index, table_name,
+            return ('    Table {!r} at index {} with header {!r}'
+                    ''.format(table_name, category_index,
                               headers[category_index]))
         except IndexError:
             raise ValueError('Invalid header index {}'
@@ -143,14 +146,14 @@ def main():
     for up_headers_arg in up_headers_args:
         replace_header_arg(up_headers, up_headers_arg)
 
-    headers = list(itertools.chain.from_iterable((
+    headers = list(chain.from_iterable((
         [postcode_header], down_headers.values(), up_headers.values())))
 
     if len(set(headers)) != len(headers):
-        header_copies = {headers.count(v): v for v in headers}
-        header_copies = {k: v for k, v in header_copies.items() if k > 1}
+        copied_headers = {headers.count(v): v for v in headers}
+        copied_headers = {k: v for k, v in copied_headers.items() if k > 1}
         raise ValueError('Duplicate header names for csv {}'
-                         ''.format(list(header_copies.values())))
+                         ''.format(list(copied_headers.values())))
 
     headers = set(headers)
 
@@ -162,29 +165,18 @@ def main():
     settings = get_settings(ini_file)
     session = init_sqlalchemy(settings)
 
-    def get_postcode_area(postcode_area):
-        result = (session.query(PostcodeArea)
-                  .filter(PostcodeArea.area == postcode_area)
-                  .with_entities('id')
-                  .first())
-        return result[0] if result else result
-
-    def delete_entries(reading_source, year, postcode_area_id):
+    def get_old_entries(reading_source, year, postcode_area_id):
         return (session.query(reading_source)
                 .filter(reading_source.year == year,
                         reading_source.postcode_area_id == postcode_area_id)
-                .delete())
-
-    postcode_areas = dict(get_postcode_areas(session))
-    postcode_units = dict(get_postcode_units(session))
-    postcode_districts = dict(get_postcode_districts(session))
-
-    def convert_entry_key(entry_key):
-        district, sector, unit = entry_key
-        return (postcode_districts[district], sector, postcode_units[unit])
+                .all())
 
     for filepath in sorted(glob.glob(os.path.join(filepath, '*.csv'))):
         _logger.info('Loading file {}'.format(filepath))
+
+        postcode_areas = dict(get_postcode_areas(session))
+        postcode_units = dict(get_postcode_units(session))
+        postcode_districts = dict(get_postcode_districts(session))
 
         with open(filepath, 'r') as csv_file:
             reader = csv.DictReader(csv_file, delimiter=',', quotechar='"')
@@ -198,151 +190,167 @@ def main():
 
             with transaction.manager:
                 rows_entries = {}
-                postcode_area = None
-                rows_postcodes_districts = set()
-                rows_postcodes_units = set()
+                new_postcode_units = {}
+                new_postcode_districts = {}
 
-                for row_i, row in enumerate(reader):
-                    row_postcode = row[postcode_header]
+                # Required to provide the postcode id to the query used to
+                # gather old entries from tables for deletion
+                first_row_postcode_area = None
+                for first_row in reader:
+                    row_postcode = first_row[postcode_header]
                     postcode_parts = split_postcode(row_postcode)
                     if not postcode_parts:
                         raise ValueError(
                             'Invalid postcode {} in file {!r} at row '
+                            '{}'.format(row_postcode, filepath, 0))
+
+                    first_row_postcode_area, _, _, _ = postcode_parts
+                    break
+
+                if not first_row_postcode_area:
+                    continue
+
+                postcode_area = None
+                postcode_area_id = postcode_areas.get(first_row_postcode_area)
+                if not postcode_area_id:
+                    _logger.info('Adding new postcode area {!r}'
+                                 ''.format(first_row_postcode_area))
+
+                    postcode_area = PostcodeArea(area=first_row_postcode_area)
+                    session.add(postcode_area)
+                    session.flush(objects=[postcode_area])
+                    postcode_area_id = postcode_area.id
+
+                deletes = []
+                for category in all_tables:
+                    table = all_tables[category]
+                    table_deletes = get_old_entries(table, year,
+                                                    postcode_area_id)
+
+                    table_name = table.__table__.name
+                    _logger.info('Deleting {} old entries for table {}'
+                                 ''.format(len(table_deletes), table_name))
+
+                    deletes.extend(table_deletes)
+
+                all_rows = chain.from_iterable(([first_row], reader))
+
+                blank_entries_count = 0
+                for row_i, row in enumerate(all_rows):
+                    row_postcode = row[postcode_header]
+                    postcode_key = split_postcode(row_postcode)
+                    if not postcode_parts:
+                        raise ValueError(
+                            'Invalid postcode {} in file {!r} at row '
                             '{}'.format(row_postcode, filepath, row_i))
+                    postcode_key = tuple(postcode_key)
 
-                    row_area, row_district, row_sector, row_unit = (
-                        postcode_parts)
+                    row_area, row_district, row_sector, row_unit = postcode_key
 
-                    if (postcode_area is not None and
-                            postcode_area != row_area):
+                    if (first_row_postcode_area != row_area):
                         raise ValueError(
                             'Invalid postcode area in file {!r} at row '
                             '{}'.format(filepath, row_i))
-                    elif postcode_area is None:
-                        postcode_area = row_area
 
-                    rows_postcodes_districts.add(row_district)
-                    rows_postcodes_units.add(row_unit)
+                    unit_id = postcode_units.get(row_unit)
+                    if unit_id is None:
+                        new_postcode_units.setdefault(
+                            row_unit, PostcodeUnit(unit=row_unit))
 
-                    entry_key = (row_district, row_sector, row_unit)
+                    district_id = postcode_districts.get(row_district)
+                    if district_id is None:
+                        new_postcode_districts.setdefault(
+                            row_district,
+                            PostcodeDistrict(district=row_district))
 
-                    for header_source in (down_headers, up_headers):
+                    for header_source_i, header_source in enumerate(
+                            (down_headers, up_headers)):
                         for category, header in header_source.items():
                             entries = rows_entries.setdefault(category, {})
-                            entry = entries.setdefault(entry_key, [])
+                            table = all_tables[category]
+
+                            # Added strings purposefully, as placeholders
+                            entry = entries.setdefault(
+                                postcode_key,
+                                table(postcode_area_id=row_area,
+                                      postcode_district_id=row_district,
+                                      postcode_sector=row_sector,
+                                      postcode_unit_id=row_unit,
+                                      year=year))
+
                             try:
-                                entry.append(float(row[header]))
+                                value = float(row[header])
                             except ValueError:
-                                entry.append(None)
+                                value = None
 
-                postcode_area_id = postcode_areas.get(postcode_area)
-                if not postcode_area_id:
-                    _logger.info('Adding new postcode area {!r}'
-                                 ''.format(postcode_area))
-                    if dry_run:
-                        # To simulate saving
-                        postcode_areas[postcode_area] = len(postcode_areas)
-                    else:
-                        session.add(PostcodeArea(area=postcode_area))
-                        _logger.info('Committing...')
-                        transaction.commit()
-                        postcode_areas[postcode_area] = (
-                            get_postcode_area(postcode_area))
+                            if header_source_i == 0:
+                                entry.download = value
+                                continue
 
-                    postcode_area_id = postcode_areas.get(postcode_area)
+                            entry.upload = value
 
-                new_units = rows_postcodes_units.difference(postcode_units)
-                for new_unit in new_units:
-                    if dry_run:
-                        # To simulate saving
-                        postcode_units[new_unit] = len(postcode_units)
-                    else:
-                        session.add(PostcodeUnit(unit=new_unit))
+                            # Safe to delete since upload header comes after
+                            # download header meaning that download value would
+                            # be set
+                            entry = entries[postcode_key]
+                            if entry.upload is None and entry.download is None:
+                                entries.pop(postcode_key)
+                                blank_entries_count += 1
 
-                if new_units:
-                    _logger.info('Adding {} new postcode units'
-                                 ''.format(len(new_units)))
-                    if not dry_run:
-                        _logger.info('Committing...')
-                        transaction.commit()
-                        postcode_units = dict(get_postcode_units(session))
+                _logger.info('Adding {} new postcode units'
+                             ''.format(len(new_postcode_units)))
+                _logger.info('Adding {} new postcode districts'
+                             ''.format(len(new_postcode_districts)))
 
-                new_districts = (rows_postcodes_districts
-                                 .difference(postcode_districts))
-                for new_district in new_districts:
-                    if dry_run:
-                        # To simulate saving
-                        postcode_districts[new_district] = len(
-                            postcode_districts)
-                    else:
-                        session.add(PostcodeDistrict(district=new_district))
+                session.add_all(new_postcode_units.values())
+                session.add_all(new_postcode_districts.values())
+                session.flush(objects=new_postcode_units.values())
+                session.flush(objects=new_postcode_districts.values())
 
-                if new_districts:
-                    _logger.info('Adding {} new postcode districts'
-                                 ''.format(len(new_districts)))
-                    if not dry_run:
-                        _logger.info('Committing...')
-                        transaction.commit()
-                        postcode_districts = dict(
-                            get_postcode_districts(session))
-
-                if not dry_run:
-                    for category in rows_entries:
-                        table = all_tables[category]
-                        table_name = table.__table__.name
-
-                        _logger.info('Deleting old entries for table {} '
-                                     'for year {}'.format(table_name,
-                                                          year))
-
-                        delete_entries(table, year, postcode_area_id)
-
-                    _logger.info('Committing...')
-                    transaction.commit()
-
-                new_entries = False
                 for category, entries in rows_entries.items():
+                    for entry_key, entry in entries.items():
+                        district = entry.postcode_district_id
+
+                        district_id = postcode_districts.get(district)
+                        if district_id is None:
+                            district_id = new_postcode_districts[district].id
+
+                        unit = entry.postcode_unit_id
+
+                        unit_id = postcode_units.get(unit)
+                        if unit_id is None:
+                            unit_id = new_postcode_units[unit].id
+
+                        # Remove placeholders in fields
+                        entry.postcode_area_id = postcode_area_id
+                        entry.postcode_unit_id = unit_id
+                        entry.postcode_district_id = district_id
+
                     table = all_tables[category]
                     table_name = table.__table__.name
 
-                    new_entry_count = 0
-                    for entry_key, entry in entries.items():
-                        # Latest values are taken from duplicate row entries
-                        download, upload = entry[-2:]
+                    _logger.info(
+                        'Storing {} new entries{} for table {}'
+                        ''.format(len(entries),
+                                  (' (ignored {} blank entries)'
+                                   ''.format(blank_entries_count)
+                                   if blank_entries_count else ''),
+                                  table_name))
 
-                        if download is None and upload is None:
-                            continue
+                    session.add_all(entries.values())
+                    session.flush(objects=entries.values())
 
-                        district, sector, unit = entry_key
+                if dry_run:
+                    transaction.abort()
+                elif (postcode_area or new_postcode_units or
+                      new_postcode_districts or
+                      sum(len(g) for g in rows_entries.values())):
+                    # Flush actions causes any entries added to
+                    # session.delete() to commit, add them last
+                    for delete in deletes:
+                        session.delete(delete)
 
-                        district_id = postcode_districts[district]
-                        unit_id = postcode_units[unit]
-
-                        new_entry = table(
-                            postcode_area_id=postcode_area_id,
-                            postcode_district_id=district_id,
-                            postcode_sector=sector,
-                            postcode_unit_id=unit_id,
-                            year=year, download=download, upload=upload)
-                        session.add(new_entry)
-                        new_entry_count += 1
-
-                    if new_entry_count:
-                        _logger.info('Storing {} new entries, for table {}'
-                                     ''.format(new_entry_count,
-                                               table_name))
-
-                        new_entries = True
-                        if dry_run:
-                            transaction.abort()
-                            new_entries = False
-                    else:
-                        _logger.info('No updates for postcode area '
-                                     '{} within table {}'
-                                     ''.format(postcode_area, table_name))
-
-                if new_entries:
-                    _logger.info('Committing entries...')
+                    _logger.info('Committing...')
                     transaction.commit()
 
     _logger.info('Done.')
